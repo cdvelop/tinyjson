@@ -68,6 +68,8 @@ func ConvertJSToGo(jsVal js.Value, v any) error {
 		*ptr = jsVal.Float()
 	case *bool:
 		*ptr = jsVal.Bool()
+	case *byte: // byte is alias for uint8
+		*ptr = byte(jsVal.Int())
 	default:
 		// Use reflection to handle pointers to slices and structs
 		val := reflect.ValueOf(v)
