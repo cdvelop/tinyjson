@@ -51,6 +51,29 @@ func EncodeShared(t *testing.T, j *tinyjson.TinyJSON) {
 			t.Errorf("Expected JSON representation of struct, got %s", resStr)
 		}
 	})
+
+	t.Run("Encode Slice of Structs", func(t *testing.T) {
+		input := []TestStruct{
+			{Name: "Alice", Age: 30},
+			{Name: "Bob", Age: 25},
+		}
+		result, err := j.Encode(input)
+		if err != nil {
+			t.Fatalf("Encode failed: %v", err)
+		}
+		resStr := string(result)
+		t.Logf("Encoded slice of structs: %s", resStr)
+
+		// Should be a JSON array, not an empty string
+		if resStr == `""` || resStr == "" {
+			t.Errorf("BUG: Slice of structs encoded as empty string instead of JSON array, got: %s", resStr)
+		}
+
+		// Verify it's a valid JSON array
+		if len(resStr) < 2 || resStr[0] != '[' || resStr[len(resStr)-1] != ']' {
+			t.Errorf("Expected JSON array format [...], got: %s", resStr)
+		}
+	})
 }
 
 func DecodeShared(t *testing.T, j *tinyjson.TinyJSON) {

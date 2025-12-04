@@ -215,8 +215,19 @@ func ConvertGoToJS(data any) js.Value {
 		}
 		return arr
 	default:
-		// Use reflection to handle structs and other types
+		// Use reflection to handle structs and slices
 		val := reflect.ValueOf(data)
+
+		// Handle slices of any type using reflection
+		if val.Kind() == reflect.Slice {
+			arr := js.Global().Get("Array").New(val.Len())
+			for i := 0; i < val.Len(); i++ {
+				arr.SetIndex(i, ConvertGoToJS(val.Index(i).Interface()))
+			}
+			return arr
+		}
+
+		// Handle structs
 		if val.Kind() == reflect.Struct {
 			obj := js.Global().Get("Object").New()
 			typ := val.Type()
