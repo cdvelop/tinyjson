@@ -70,6 +70,11 @@ func ConvertJSToGo(jsVal js.Value, v any) error {
 		*ptr = jsVal.Bool()
 	case *byte: // byte is alias for uint8
 		*ptr = byte(jsVal.Int())
+	case *[]byte:
+		// []byte is encoded as string, so decode from string
+		if jsVal.Type() == js.TypeString {
+			*ptr = []byte(jsVal.String())
+		}
 	default:
 		// Use reflection to handle pointers to slices and structs
 		val := reflect.ValueOf(v)
@@ -80,19 +85,37 @@ func ConvertJSToGo(jsVal js.Value, v any) error {
 
 		// Handle slices of any type
 		if elem.Kind() == reflect.Slice {
+			sliceType := elem.Type()
+			elemType := sliceType.Elem()
+
+			// Special case: []byte is encoded as string, not array
+			// Check if this is a []byte (slice of uint8)
+			if elemType.Kind() == reflect.Uint8 {
+				if jsVal.Type() == js.TypeString {
+					elem.SetBytes([]byte(jsVal.String()))
+					return nil
+				}
+			}
+
 			if !jsVal.InstanceOf(js.Global().Get("Array")) {
 				return nil // Not an array
 			}
 
 			length := jsVal.Length()
-			sliceType := elem.Type()
-			elemType := sliceType.Elem()
 
 			// Create new slice with correct capacity
 			newSlice := reflect.MakeSlice(sliceType, length, length)
 
 			for i := 0; i < length; i++ {
 				jsItem := jsVal.Index(i)
+
+				// Special case for [][]byte: inner []byte is encoded as string
+				if elemType.Kind() == reflect.Slice && elemType.Elem().Kind() == reflect.Uint8 {
+					if jsItem.Type() == js.TypeString {
+						newSlice.Index(i).SetBytes([]byte(jsItem.String()))
+						continue
+					}
+				}
 
 				// Create new element of the correct type
 				newElem := reflect.New(elemType)

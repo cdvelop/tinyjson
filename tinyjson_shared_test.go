@@ -134,4 +134,108 @@ func DecodeShared(t *testing.T, j *tinyjson.TinyJSON) {
 			t.Errorf("Expected second name 'Bob', got '%s'", result[1].Name)
 		}
 	})
+
+	// Test case that replicates crudp Packet structure with [][]byte
+	t.Run("Decode Struct with byte and [][]byte fields", func(t *testing.T) {
+		// This replicates crudp.Packet structure
+		type Packet struct {
+			Action    byte     `json:"action"`
+			HandlerID uint8    `json:"handler_id"`
+			ReqID     string   `json:"req_id"`
+			Data      [][]byte `json:"data"`
+		}
+
+		// First encode a packet
+		innerData := []byte(`{"name":"John"}`)
+		packet := Packet{
+			Action:    'c',
+			HandlerID: 0,
+			ReqID:     "test-1",
+			Data:      [][]byte{innerData},
+		}
+
+		encoded, err := j.Encode(packet)
+		if err != nil {
+			t.Fatalf("Failed to encode packet: %v", err)
+		}
+		t.Logf("Encoded packet: %s", string(encoded))
+
+		// Now decode it back
+		var decoded Packet
+		err = j.Decode(encoded, &decoded)
+		if err != nil {
+			t.Fatalf("Failed to decode packet: %v", err)
+		}
+
+		if decoded.Action != 'c' {
+			t.Errorf("Expected Action 'c' (%d), got %d", 'c', decoded.Action)
+		}
+		if decoded.HandlerID != 0 {
+			t.Errorf("Expected HandlerID 0, got %d", decoded.HandlerID)
+		}
+		if decoded.ReqID != "test-1" {
+			t.Errorf("Expected ReqID 'test-1', got '%s'", decoded.ReqID)
+		}
+		if len(decoded.Data) != 1 {
+			t.Fatalf("Expected 1 data item, got %d", len(decoded.Data))
+		}
+		if string(decoded.Data[0]) != string(innerData) {
+			t.Errorf("Expected data '%s', got '%s'", string(innerData), string(decoded.Data[0]))
+		}
+	})
+
+	// Test BatchRequest structure (nested structs with [][]byte)
+	t.Run("Decode BatchRequest with nested Packets", func(t *testing.T) {
+		type Packet struct {
+			Action    byte     `json:"action"`
+			HandlerID uint8    `json:"handler_id"`
+			ReqID     string   `json:"req_id"`
+			Data      [][]byte `json:"data"`
+		}
+		type BatchRequest struct {
+			Packets []Packet `json:"packets"`
+		}
+
+		innerData := []byte(`{"name":"John","email":"john@example.com"}`)
+		batch := BatchRequest{
+			Packets: []Packet{
+				{
+					Action:    'c',
+					HandlerID: 0,
+					ReqID:     "test-create",
+					Data:      [][]byte{innerData},
+				},
+			},
+		}
+
+		encoded, err := j.Encode(batch)
+		if err != nil {
+			t.Fatalf("Failed to encode batch: %v", err)
+		}
+		t.Logf("Encoded batch: %s", string(encoded))
+
+		var decoded BatchRequest
+		err = j.Decode(encoded, &decoded)
+		if err != nil {
+			t.Fatalf("Failed to decode batch: %v", err)
+		}
+
+		if len(decoded.Packets) != 1 {
+			t.Fatalf("Expected 1 packet, got %d", len(decoded.Packets))
+		}
+
+		pkt := decoded.Packets[0]
+		if pkt.Action != 'c' {
+			t.Errorf("Expected Action 'c' (%d), got %d", 'c', pkt.Action)
+		}
+		if pkt.ReqID != "test-create" {
+			t.Errorf("Expected ReqID 'test-create', got '%s'", pkt.ReqID)
+		}
+		if len(pkt.Data) != 1 {
+			t.Fatalf("Expected 1 data item, got %d", len(pkt.Data))
+		}
+		if string(pkt.Data[0]) != string(innerData) {
+			t.Errorf("Expected data '%s', got '%s'", string(innerData), string(pkt.Data[0]))
+		}
+	})
 }
