@@ -136,6 +136,11 @@ func ConvertJSToGo(jsVal js.Value, v any) error {
 
 		// Handle structs
 		if elem.Kind() == reflect.Struct {
+			// Check if jsVal is actually an object (not string, number, etc.)
+			if jsVal.Type() != js.TypeObject {
+				return nil // Cannot decode non-object into struct
+			}
+
 			typ := elem.Type()
 			for i := 0; i < elem.NumField(); i++ {
 				field := typ.Field(i)
@@ -277,6 +282,14 @@ func ConvertGoToJS(data any) js.Value {
 	default:
 		// Use reflection to handle structs and slices
 		val := reflect.ValueOf(data)
+
+		// Handle pointers - dereference and recurse
+		if val.Kind() == reflect.Ptr {
+			if val.IsNil() {
+				return js.Null()
+			}
+			return ConvertGoToJS(val.Elem().Interface())
+		}
 
 		// Handle slices of any type using reflection
 		if val.Kind() == reflect.Slice {

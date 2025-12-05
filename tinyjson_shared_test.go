@@ -238,4 +238,232 @@ func DecodeShared(t *testing.T, j *tinyjson.TinyJSON) {
 			t.Errorf("Expected data '%s', got '%s'", string(innerData), string(pkt.Data[0]))
 		}
 	})
+
+	// Test embedded struct (like crudp.PacketResult embeds Packet)
+	t.Run("Decode struct with embedded struct", func(t *testing.T) {
+		type Packet struct {
+			Action    byte     `json:"action"`
+			HandlerID uint8    `json:"handler_id"`
+			ReqID     string   `json:"req_id"`
+			Data      [][]byte `json:"data"`
+		}
+		type PacketResult struct {
+			Packet             // Embedded struct
+			MessageType uint8  `json:"message_type"`
+			Message     string `json:"message"`
+		}
+
+		innerData := []byte(`{"id":123,"name":"John"}`)
+		result := PacketResult{
+			Packet: Packet{
+				Action:    'c',
+				HandlerID: 0,
+				ReqID:     "test-1",
+				Data:      [][]byte{innerData},
+			},
+			MessageType: 4, // Success
+			Message:     "OK",
+		}
+
+		encoded, err := j.Encode(result)
+		if err != nil {
+			t.Fatalf("Failed to encode PacketResult: %v", err)
+		}
+		t.Logf("Encoded PacketResult: %s", string(encoded))
+
+		var decoded PacketResult
+		err = j.Decode(encoded, &decoded)
+		if err != nil {
+			t.Fatalf("Failed to decode PacketResult: %v", err)
+		}
+
+		if decoded.Action != 'c' {
+			t.Errorf("Expected Action 'c' (%d), got %d", 'c', decoded.Action)
+		}
+		if decoded.ReqID != "test-1" {
+			t.Errorf("Expected ReqID 'test-1', got '%s'", decoded.ReqID)
+		}
+		if decoded.MessageType != 4 {
+			t.Errorf("Expected MessageType 4, got %d", decoded.MessageType)
+		}
+		if decoded.Message != "OK" {
+			t.Errorf("Expected Message 'OK', got '%s'", decoded.Message)
+		}
+		if len(decoded.Data) != 1 {
+			t.Fatalf("Expected 1 data item, got %d", len(decoded.Data))
+		}
+		if string(decoded.Data[0]) != string(innerData) {
+			t.Errorf("Expected data '%s', got '%s'", string(innerData), string(decoded.Data[0]))
+		}
+	})
+
+	// Test BatchResponse with embedded structs
+	t.Run("Decode BatchResponse with PacketResult", func(t *testing.T) {
+		type Packet struct {
+			Action    byte     `json:"action"`
+			HandlerID uint8    `json:"handler_id"`
+			ReqID     string   `json:"req_id"`
+			Data      [][]byte `json:"data"`
+		}
+		type PacketResult struct {
+			Packet
+			MessageType uint8  `json:"message_type"`
+			Message     string `json:"message"`
+		}
+		type BatchResponse struct {
+			Results []PacketResult `json:"results"`
+		}
+
+		innerData := []byte(`{"id":123,"name":"John"}`)
+		batch := BatchResponse{
+			Results: []PacketResult{
+				{
+					Packet: Packet{
+						Action:    'c',
+						HandlerID: 0,
+						ReqID:     "test-1",
+						Data:      [][]byte{innerData},
+					},
+					MessageType: 4,
+					Message:     "OK",
+				},
+			},
+		}
+
+		encoded, err := j.Encode(batch)
+		if err != nil {
+			t.Fatalf("Failed to encode BatchResponse: %v", err)
+		}
+		t.Logf("Encoded BatchResponse: %s", string(encoded))
+
+		var decoded BatchResponse
+		err = j.Decode(encoded, &decoded)
+		if err != nil {
+			t.Fatalf("Failed to decode BatchResponse: %v", err)
+		}
+
+		if len(decoded.Results) != 1 {
+			t.Fatalf("Expected 1 result, got %d", len(decoded.Results))
+		}
+
+		r := decoded.Results[0]
+		if r.Action != 'c' {
+			t.Errorf("Expected Action 'c' (%d), got %d", 'c', r.Action)
+		}
+		if r.MessageType != 4 {
+			t.Errorf("Expected MessageType 4, got %d", r.MessageType)
+		}
+		if r.Message != "OK" {
+			t.Errorf("Expected Message 'OK', got '%s'", r.Message)
+		}
+		if len(r.Data) != 1 {
+			t.Fatalf("Expected 1 data item, got %d", len(r.Data))
+		}
+	})
+
+	// Test decode into existing pointer (like crudp.decodeWithKnownType does)
+	t.Run("Decode into existing struct pointer", func(t *testing.T) {
+		type User struct {
+			ID    int    `json:"id"`
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+
+		// This replicates how crudp.decodeWithKnownType works
+		// It has a handler instance and decodes directly into it
+		handler := &User{} // Existing pointer like in handler registry
+
+		userData := `{"id":123,"name":"John","email":"john@example.com"}`
+
+		err := j.Decode([]byte(userData), handler)
+		if err != nil {
+			t.Fatalf("Failed to decode into handler: %v", err)
+		}
+
+		if handler.ID != 123 {
+			t.Errorf("Expected ID 123, got %d", handler.ID)
+		}
+		if handler.Name != "John" {
+			t.Errorf("Expected Name 'John', got '%s'", handler.Name)
+		}
+		if handler.Email != "john@example.com" {
+			t.Errorf("Expected Email 'john@example.com', got '%s'", handler.Email)
+		}
+	})
+
+	// Test the full crudp flow: encode batch -> decode batch -> decode inner data
+	t.Run("Full crudp flow simulation", func(t *testing.T) {
+		type User struct {
+			ID    int    `json:"id"`
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		}
+		type Packet struct {
+			Action    byte     `json:"action"`
+			HandlerID uint8    `json:"handler_id"`
+			ReqID     string   `json:"req_id"`
+			Data      [][]byte `json:"data"`
+		}
+		type BatchRequest struct {
+			Packets []Packet `json:"packets"`
+		}
+
+		// Step 1: Create user and encode
+		user := User{Name: "John", Email: "john@example.com"}
+		userData, err := j.Encode(&user)
+		if err != nil {
+			t.Fatalf("Failed to encode user: %v", err)
+		}
+		t.Logf("Encoded user: %s", string(userData))
+
+		// Step 2: Create packet with user data
+		packet := Packet{
+			Action:    'c',
+			HandlerID: 0,
+			ReqID:     "test-create",
+			Data:      [][]byte{userData},
+		}
+
+		// Step 3: Create batch request
+		batch := BatchRequest{Packets: []Packet{packet}}
+		batchBytes, err := j.Encode(batch)
+		if err != nil {
+			t.Fatalf("Failed to encode batch: %v", err)
+		}
+		t.Logf("Encoded batch: %s", string(batchBytes))
+
+		// Step 4: Decode batch request
+		var decodedBatch BatchRequest
+		err = j.Decode(batchBytes, &decodedBatch)
+		if err != nil {
+			t.Fatalf("Failed to decode batch: %v", err)
+		}
+
+		if len(decodedBatch.Packets) != 1 {
+			t.Fatalf("Expected 1 packet, got %d", len(decodedBatch.Packets))
+		}
+
+		pkt := decodedBatch.Packets[0]
+		t.Logf("Decoded packet: Action=%d, ReqID=%s, Data len=%d", pkt.Action, pkt.ReqID, len(pkt.Data))
+
+		if len(pkt.Data) != 1 {
+			t.Fatalf("Expected 1 data item, got %d", len(pkt.Data))
+		}
+
+		t.Logf("Packet data[0]: %s", string(pkt.Data[0]))
+
+		// Step 5: Decode user from packet data (like decodeWithKnownType does)
+		handler := &User{}
+		err = j.Decode(pkt.Data[0], handler)
+		if err != nil {
+			t.Fatalf("Failed to decode user from packet data: %v", err)
+		}
+
+		if handler.Name != "John" {
+			t.Errorf("Expected Name 'John', got '%s'", handler.Name)
+		}
+		if handler.Email != "john@example.com" {
+			t.Errorf("Expected Email 'john@example.com', got '%s'", handler.Email)
+		}
+	})
 }
